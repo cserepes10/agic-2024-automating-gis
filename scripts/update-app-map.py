@@ -3,21 +3,29 @@ import arcgis
 from arcgis.gis import GIS
 from arcgis.mapping import WebMap
 from GlendaleTools import glendale_tools
+from arcgis.apps.expbuilder import WebExperience
 
 
 
 # Update Descriptions
 def update_desc(creds):
     gis = GIS(creds[0], creds[1], creds[2])
-    ApplicationTypes = ['Dashboard', 'Web Mapping Application']
+    if 'gismaps.gelndaleaz.com' in creds[0]:
+        portal = True
+    else:
+        portal = False
+    ApplicationTypes = ['Dashboard', 'Web Mapping Application','Web Experience']
     dashboard_ids = []
     app_ids = []
+    exp_ids = []
     webmap_app_ids = []
     the_path = r'D:\COG_ADMIN\MISC_PROJECTS\agic-2024-automating-gis\scripts\templates\\'
     
-    dashboard_items = gis.content.search(query='owner:*', item_type="Dashboard", max_items=9999)
-    app_items = gis.content.search(query='owner:*', item_type="Application", max_items=9999)
-    webmap_app_items = gis.content.search(query='owner:*', item_type="Web Mapping Application", max_items=9999)
+    dashboard_items = gis.content.search(query='owner:BCserepes@GLENDALEAZ.COM_COG_GIS', item_type="Dashboard", max_items=9999)
+    app_items = gis.content.search(query='owner:BCserepes@GLENDALEAZ.COM_COG_GIS', item_type="Application", max_items=9999)
+    webmap_app_items = gis.content.search(query='owner:BCserepes@GLENDALEAZ.COM_COG_GIS', item_type="Web Mapping Application", max_items=9999)
+    webexp_app_items = gis.content.search(query='owner:BCserepes@GLENDALEAZ.COM_COG_GIS', item_type="Web Experience", max_items=9999)
+    
     
     for item in dashboard_items:
         dashboard_ids.append(item.id)
@@ -25,8 +33,11 @@ def update_desc(creds):
         app_ids.append(item.id)
     for item in webmap_app_items:
         webmap_app_ids.append(item.id)
+    for item in webexp_app_items:
+        exp_ids.append(item.id)
+    print(len(exp_ids))
     
-    app_type_dict = {'Dashboard': dashboard_ids, 'Web Mapping Application': webmap_app_ids}
+    app_type_dict = {'Dashboard': dashboard_ids, 'Web Mapping Application': webmap_app_ids, 'Web Experience': exp_ids}
     
     for app_type in ApplicationTypes:
         id_list = app_type_dict[app_type]
@@ -34,22 +45,21 @@ def update_desc(creds):
         for content_id in id_list:
             content_search = gis.content.get(content_id)
             
-            try:
-                print(content_search.get_data()['widgets'])
-            except:
-                pass
-            
-            print(f"CONTENT: {content_search.type}")
+            #print(f"CONTENT: {content_search.type}")
             
             # Process Dashboards
             if content_search.type == "Dashboard":
-                update_dashboard(content_search, the_path, gis)
+                
+                update_dashboard(content_search, the_path, gis, portal)
             
             # Process Web Mapping Applications
-            elif content_search.type == "Web Mapping Application":
-                update_web_mapping_app(content_search, the_path, gis)
+            if content_search.type == "Web Mapping Application":
+                update_web_mapping_app(content_search, the_path, gis, portal)
+            # Process Web Experiences
+            if content_search.type == "Web Experience":
+                update_web_mapping_app(content_search, the_path, gis, portal)
 
-def update_dashboard(content_search, the_path, gis):
+def update_dashboard(content_search, the_path, gis, portal):
     try:
         old_title = content_search.title
         title = old_title if ' (DASHBOARD)' in old_title else f"{old_title} (DASHBOARD)"
@@ -57,16 +67,16 @@ def update_dashboard(content_search, the_path, gis):
         for widget in content_search.get_data()['widgets']:
             if widget['type'] == "mapWidget":
                 webmap_id = widget['itemId']
-                print(f'The webmap id: {webmap_id}')
+                #print(f'The webmap id: {webmap_id}')
                 mappy = gis.content.get(webmap_id)
-                wm = WebMap(mappy)
-                html_list = generate_html_list(wm)
+                selected_web_map = WebMap(mappy)
+                html_list = generate_html_list(selected_web_map, gis)
                 
                 with open(the_path + "app-description.txt", "w") as f:
                     f.write(str(html_list))
                 
                 with open(the_path + "app-description.txt", "r") as f:
-                    beedle = generate_beedle_html(mappy, wm, f.read())
+                    beedle = generate_beedle_html(mappy, selected_web_map, f.read(), portal)
                     props = {
                         "title": title,
                         "thumbnailurl": "https://gismaps.glendaleaz.com/gisportal/sharing/rest/content/items/8dbff04007044f75b818b2f33607fcb5/data",
@@ -93,8 +103,20 @@ def normalize_app_title(title):
     clean_title = title.replace(app_tag, '')
     # Append a single '(App)' to the cleaned title
     return f"{clean_title} {app_tag}"
-
-def update_web_mapping_app(content_search, the_path, gis):
+def deal_with_exp_builder(content_search, gis):
+    print(content_search.id)
+    experience_builder = WebExperience(content_search.id, gis = gis)
+    print(experience_builder.datasources)
+    keys_list = []
+    for key in experience_builder.datasources.keys():
+        keys_list.append(key)
+    print(keys_list)
+    for i in keys_list:
+        if experience_builder.datasources[i]['type'] == 'WEB_MAP':
+            print(f'web map waha: {experience_builder.datasources[i]["itemId"]}')
+            webmap_id = experience_builder.datasources[i]["itemId"]
+    return webmap_id
+def update_web_mapping_app(content_search, the_path, gis, portal):
     try:
         old_title = content_search.title
         title = normalize_app_title(old_title)
@@ -105,22 +127,28 @@ def update_web_mapping_app(content_search, the_path, gis):
             try:
                 val_getter = content_search.get_data(try_json=True)
                 val_list = list(val_getter.values())
+                #print(val_list)
                 item_dict = dict(val_list[11])
                 webmap_id = item_dict['itemId']
             except:
-                print('No web map found using default map')
-                return
+                print('No web map trying experience builders')
+        try:
+            webmap_id = deal_with_exp_builder(content_search, gis)
+        except:
+            print('not an experience builder')
+            pass
         
         print(f'The web map for this app: {webmap_id}')
         mappy = gis.content.get(webmap_id)
-        wm = WebMap(mappy)
-        html_list = generate_html_list(wm)
-        
+        print(mappy.title)
+        selected_web_map = WebMap(mappy)
+        html_list = generate_html_list(selected_web_map, gis)
+        print(html_list)
         with open(the_path + "app-description.txt", "w") as f:
             f.write(str(html_list))
         
         with open(the_path + "app-description.txt", "r") as f:
-            beedle = generate_beedle_html(mappy, wm, f.read())
+            beedle = generate_beedle_html(mappy, selected_web_map, f.read(), portal)
             props = {
                 "title": title,
                 "thumbnailurl": "https://gismaps.glendaleaz.com/gisportal/sharing/rest/content/items/9ab3b6e31c3749419467975c8e1e5c97/data",
@@ -134,54 +162,73 @@ def update_web_mapping_app(content_search, the_path, gis):
 
 
 
-def generate_html_list(wm):
+def generate_html_list(selected_web_map, gis):
     html_list = []
     lyr_url = []
-    lyrs = [lyr.title for lyr in wm.layers]
-    
-    for i, lyr in enumerate(wm.layers):
-        lyr_url.append(lyr.url)
-        for a, lyr_title in enumerate(lyrs):
-            stringy_url = f"<li><a href='{lyr_url[a]}' target='_blank'>{lyr_title}</li></a>"
+    lyr_type = []
+    try:
+        for lyr in selected_web_map.layers:
+            lyr_url.append(lyr.url)
+            lyr_type.append(lyr.get('layerType', 'Unknown'))
+            stringy_url = f"<li><a href='{lyr.url}' target='_blank'>{lyr.title}</li></a>"
             if stringy_url not in html_list:
                 html_list.append(stringy_url)
+        try:
+            for k in range(len(lyr_url)):
+                find_maps_with_layer(lyr_url[k], lyr_type[k], gis=gis)
+        except:
+            print('couldnt get the layers description updated')
+    except:
+        html_list = "Couldn't get the list"
     
     return html_list
 
-def generate_beedle_html(mappy, wm, description):
+def generate_beedle_html(mappy, selected_web_map, description, portal):
     clean_description = description.replace('["', '').replace('"]', '').replace('",', '').replace('"', '')
+    if portal == True:
+        url = 'https://gismaps.glendaleaz.com/gisportal/apps/mapviewer/index.html?webmap='
+    else:
+        url = 'https://cog-gis.maps.arcgis.com/apps/mapviewer/index.html?webmap='
     return (
         f"<font size='4'><b><font color='#ff0000' style='background-color:rgb(255, 255, 255);'><i>The Web Map Name Is:</i></font></b><br>"
-        f"<ul><li><a href='https://gismaps.glendaleaz.com/gisportal//home/webmap/viewer.html?webmap={mappy.id}' target='_blank'>"
-        f"<font size='4'><i>{wm.item.title}</i></font></a></li></ul><br>"
+        f"<ul><li><a href='{url}{mappy.id}' target='_blank'>"
+        f"<font size='4'><i>{selected_web_map.item.title}</i></font></a></li></ul><br>"
         f"<font size='3'>The Layers in this app are:<br><ul>{clean_description}</ul></font>"
     )
 
 # Find Maps With Layer
-def find_maps_with_layer(lyr_to_find, search_layer, map_item_query='1=1'):
+from arcgis.gis import GIS
+from arcgis.mapping import WebMap
+
+def find_maps_with_layer(lyr_to_find, search_layer,  gis=''):
     header_txt = ("<font size='4'><b><font color='#ff0000' style='background-color:rgb(255, 255, 255);'>"
-                  "<i>This layer is found in the following WebMap's:</i></font></b>")
-    web_map_items = gis.content.search(query=map_item_query, item_type="Web Map", max_items=10000)
-    lyr_update = gis.content.search(query=lyr_to_find, item_type=search_layer, max_items=10000)
+                  "<i>This layer is found in the following Web Map's:</i></font></b>")
     
+    # Search for web maps and the specific layer
+    web_map_items = gis.content.search(query='*', item_type="Web Map", max_items=10000)
+    lyr_update = gis.content.search(query=lyr_to_find, max_items=10000)
+    print(search_layer)
     print(f"Searching {len(web_map_items)} web maps")
     print(f"Searching for {lyr_to_find} in the maps")
     
     maps_with_layer = []
     maps_without_layer = []
     
+    # Iterate over each web map
     for item in web_map_items:
         found_it = False
-        wm = WebMap(item)
-        lyrs = wm.layers
+        selected_web_map = WebMap(item)
+        lyrs = selected_web_map.layers
         
         for lyr in lyrs:
-            if 'url' in lyr and not found_it:
-                found_it = lyr_to_find.lower() in lyr.url.lower()
+            if 'url' in lyr and lyr_to_find.lower() in lyr.url.lower():
+                found_it = True
+                break
             elif 'layerType' in lyr and lyr.layerType == "GroupLayer":
                 for sublyr in lyr.layers:
-                    if 'url' in sublyr and not found_it:
-                        found_it = lyr_to_find.lower() in sublyr.url.lower()
+                    if 'url' in sublyr and lyr_to_find.lower() in sublyr.url.lower():
+                        found_it = True
+                        break
         
         if found_it:
             print(f'{item.id} contains the layer')
@@ -192,45 +239,46 @@ def find_maps_with_layer(lyr_to_find, search_layer, map_item_query='1=1'):
     print(f"Found {len(maps_with_layer)} maps which contain the layer")
     print(f"Found {len(maps_without_layer)} maps which do not contain the layer")
     
-    if len(lyr_update) == 0:
+    if not lyr_update:
         print('No layer update found')
         return maps_with_layer, maps_without_layer
     
-    describe = lyr_update[0]
+    # Update the description of the first matching layer
+    describe = lyr_update
     element_list = []
     the_path = r'D:\COG_ADMIN\MISC_PROJECTS\update-app-map\middle-man\\'
     
     for map_item in maps_with_layer:
-        element_list.append(f"<ul><li><a href='https://gismaps.glendaleaz.com/gisportal//home/webmap/viewer.html?webmap="
-                            f"{map_item.id}' target='_blank'><font size='4'><i>{map_item.title}</i></li></ul></font></a>")
-    
-    with open(the_path + "feature-layer-description.txt", "r+") as f:
-        try:
-            f.truncate(0)
-            f.seek(0)
-            f.write(header_txt + str(element_list).replace('["', '').replace('"]', '').replace('",', '').replace('"', ''))
-        except:
-            pass
-    
-    with open(the_path + "feature-layer-description.txt", "r") as f:
-        description = f.read()
-    
-    updater = gis.content.get(describe.id)
-    props = {
-        "title": lyr_to_find.title,
-        "thumbnailurl": "https://gismaps.glendaleaz.com/gisportal/sharing/rest/content/items/c0ed4fb77f1b441595ea1b6f31c5b46a/data",
-        "description": description,
-        "overwrite": True
-    }
-    if not element_list:
-        props['tags'] = 'orphan'
+        element_list.append(
+            f"<ul><li><a href='https://gismaps.glendaleaz.com/gisportal//home/webmap/viewer.html?webmap="
+            f"{map_item.id}' target='_blank'><font size='4'><i>{map_item.title}</i></font></a></li></ul>"
+        )
     
     try:
+        with open(the_path + "feature-layer-description.txt", "w") as f:
+            f.write(header_txt + ''.join(element_list))
+        
+        with open(the_path + "feature-layer-description.txt", "r") as f:
+            description = f.read()
+        
+        props = {
+            "title": describe.title,
+            "thumbnailurl": "https://gismaps.glendaleaz.com/gisportal/sharing/rest/content/items/c0ed4fb77f1b441595ea1b6f31c5b46a/data",
+            "description": description,
+            "overwrite": True
+        }
+        
+        if not element_list:
+            props['tags'] = 'orphan'
+        
+        updater = gis.content.get(describe.id)
         updater.update(item_properties=props)
-    except:
-        pass
+    
+    except Exception as e:
+        print(f"Failed to update feature layer description: {e}")
     
     return maps_with_layer, maps_without_layer
+
 
 if __name__ == "__main__":
     tools = glendale_tools()
