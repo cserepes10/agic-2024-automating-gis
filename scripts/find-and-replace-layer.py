@@ -27,7 +27,7 @@ def main():
         'BORDER': 1, 'SLIDER_DEPTH': 0, 'PROGRESS_DEPTH': 0
         }
     sg.theme('CustomTheme')
-    image = r'D:\COG_ADMIN\MISC_PROJECTS\automation-python\exchange.png'
+    image = r'D:\COG_ADMIN\MISC_PROJECTS\agic-2024-automating-gis\scripts\exchange.png'
     layout = [
         [sg.Image(image)],
         [sg.Text('URL TO REPLACE:')],
