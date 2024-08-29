@@ -1,5 +1,3 @@
-import json
-import arcgis
 from arcgis.gis import GIS
 from arcgis.mapping import WebMap
 from GlendaleTools import glendale_tools
@@ -70,7 +68,7 @@ def update_dashboard(content_search, the_path, gis, portal):
                 #print(f'The webmap id: {webmap_id}')
                 mappy = gis.content.get(webmap_id)
                 selected_web_map = WebMap(mappy)
-                html_list = generate_html_list(selected_web_map, gis)
+                html_list = generate_html_list(selected_web_map, gis, portal=portal)
                 
                 with open(the_path + "app-description.txt", "w") as f:
                     f.write(str(html_list))
@@ -142,7 +140,7 @@ def update_web_mapping_app(content_search, the_path, gis, portal):
         mappy = gis.content.get(webmap_id)
         print(mappy.title)
         selected_web_map = WebMap(mappy)
-        html_list = generate_html_list(selected_web_map, gis)
+        html_list = generate_html_list(selected_web_map, gis, portal=portal)
         print(html_list)
         with open(the_path + "app-description.txt", "w") as f:
             f.write(str(html_list))
@@ -162,7 +160,7 @@ def update_web_mapping_app(content_search, the_path, gis, portal):
 
 
 
-def generate_html_list(selected_web_map, gis):
+def generate_html_list(selected_web_map, gis, portal):
     html_list = []
     lyr_url = []
     lyr_type = []
@@ -175,7 +173,7 @@ def generate_html_list(selected_web_map, gis):
                 html_list.append(stringy_url)
         try:
             for k in range(len(lyr_url)):
-                find_maps_with_layer(lyr_url[k], lyr_type[k], gis=gis)
+                find_maps_with_layer(lyr_url[k], lyr_type[k], gis=gis, portal=portal)
         except:
             print('couldnt get the layers description updated')
     except:
@@ -196,21 +194,21 @@ def generate_beedle_html(mappy, selected_web_map, description, portal):
         f"<font size='3'>The Layers in this app are:<br><ul>{clean_description}</ul></font>"
     )
 
-# Find Maps With Layer
-from arcgis.gis import GIS
-from arcgis.mapping import WebMap
 
-def find_maps_with_layer(lyr_to_find, search_layer,  gis=''):
-    header_txt = ("<font size='4'><b><font color='#ff0000' style='background-color:rgb(255, 255, 255);'>"
+def find_maps_with_layer(lyr_to_find, search_layer,  gis='', portal=''):
+    new_description = ("<font size='4'><b><font color='#ff0000' style='background-color:rgb(255, 255, 255);'>"
                   "<i>This layer is found in the following Web Map's:</i></font></b>")
     
     # Search for web maps and the specific layer
-    web_map_items = gis.content.search(query='*', item_type="Web Map", max_items=10000)
-    lyr_update = gis.content.search(query=lyr_to_find, max_items=10000)
-    print(search_layer)
-    print(f"Searching {len(web_map_items)} web maps")
-    print(f"Searching for {lyr_to_find} in the maps")
-    
+    web_map_items = gis.content.search(query='*', item_type="Web Map", max_items=200)
+    lyr_to_find = lyr_to_find.split('FeatureServer')[0]+'FeatureServer'
+    lyr_update = gis.content.search(query=lyr_to_find,item_type="Feature Layer Collection", max_items=1)
+
+    print(lyr_update)
+    if portal == True:
+        url = 'https://gismaps.glendaleaz.com/gisportal/apps/mapviewer/index.html?webmap='
+    else:
+        url = 'https://cog-gis.maps.arcgis.com/apps/mapviewer/index.html?webmap='
     maps_with_layer = []
     maps_without_layer = []
     
@@ -236,43 +234,34 @@ def find_maps_with_layer(lyr_to_find, search_layer,  gis=''):
         else:
             maps_without_layer.append(item)
     
-    print(f"Found {len(maps_with_layer)} maps which contain the layer")
-    print(f"Found {len(maps_without_layer)} maps which do not contain the layer")
-    
     if not lyr_update:
         print('No layer update found')
-        return maps_with_layer, maps_without_layer
+        return 
     
     # Update the description of the first matching layer
-    describe = lyr_update
+    describe = lyr_update[0]
     element_list = []
-    the_path = r'D:\COG_ADMIN\MISC_PROJECTS\update-app-map\middle-man\\'
+    the_path = r'D:\COG_ADMIN\MISC_PROJECTS\agic-2024-automating-gis\scripts\templates\\'
     
     for map_item in maps_with_layer:
-        element_list.append(
-            f"<ul><li><a href='https://gismaps.glendaleaz.com/gisportal//home/webmap/viewer.html?webmap="
+        new_description += (
+            f"<ul><li><a href='{url}"
             f"{map_item.id}' target='_blank'><font size='4'><i>{map_item.title}</i></font></a></li></ul>"
         )
-    
+    print(new_description)
     try:
-        with open(the_path + "feature-layer-description.txt", "w") as f:
-            f.write(header_txt + ''.join(element_list))
         
-        with open(the_path + "feature-layer-description.txt", "r") as f:
-            description = f.read()
-        
+        print("THE TITLE IS :" + describe.title)
         props = {
             "title": describe.title,
             "thumbnailurl": "https://gismaps.glendaleaz.com/gisportal/sharing/rest/content/items/c0ed4fb77f1b441595ea1b6f31c5b46a/data",
-            "description": description,
+            "description": new_description,
             "overwrite": True
-        }
-        
+            }
         if not element_list:
             props['tags'] = 'orphan'
-        
-        updater = gis.content.get(describe.id)
-        updater.update(item_properties=props)
+            
+        describe.update(item_properties=props)
     
     except Exception as e:
         print(f"Failed to update feature layer description: {e}")
