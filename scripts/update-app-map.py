@@ -7,12 +7,12 @@ from arcgis.apps.expbuilder import WebExperience
 
 # Update Descriptions
 def update_desc(creds):
-    gis = GIS(creds[0], creds[1], creds[2])
+    gis = GIS(url=creds[0], username=creds[1], password=creds[2])
     if 'gismaps.gelndaleaz.com' in creds[0]:
         portal = True
     else:
         portal = False
-    ApplicationTypes = ['Dashboard', 'Web Mapping Application','Web Experience']
+    ApplicationTypes = ['Dashboard', 'Web Mapping Application', 'Web Experience']
     dashboard_ids = []
     app_ids = []
     exp_ids = []
@@ -26,36 +26,23 @@ def update_desc(creds):
     
     
     for item in dashboard_items:
-        dashboard_ids.append(item.id)
-    for item in app_items:
-        app_ids.append(item.id)
-    for item in webmap_app_items:
-        webmap_app_ids.append(item.id)
-    for item in webexp_app_items:
-        exp_ids.append(item.id)
-    print(len(exp_ids))
-    
-    app_type_dict = {'Dashboard': dashboard_ids, 'Web Mapping Application': webmap_app_ids, 'Web Experience': exp_ids}
-    
-    for app_type in ApplicationTypes:
-        id_list = app_type_dict[app_type]
         
-        for content_id in id_list:
-            content_search = gis.content.get(content_id)
-            
-            #print(f"CONTENT: {content_search.type}")
-            
-            # Process Dashboards
-            if content_search.type == "Dashboard":
-                
-                update_dashboard(content_search, the_path, gis, portal)
-            
-            # Process Web Mapping Applications
-            if content_search.type == "Web Mapping Application":
-                update_web_mapping_app(content_search, the_path, gis, portal)
-            # Process Web Experiences
-            if content_search.type == "Web Experience":
-                update_web_mapping_app(content_search, the_path, gis, portal)
+        content_search = gis.content.get(item.id)
+        update_dashboard(content_search, the_path, gis, portal)
+    for item in app_items:
+        content_search = gis.content.get(item.id)
+        update_web_mapping_app(content_search, the_path, gis, portal)
+        
+    for item in webmap_app_items:
+        content_search = gis.content.get(item.id)
+        update_web_mapping_app(content_search, the_path, gis, portal)
+        
+    for item in webexp_app_items:
+        content_search = gis.content.get(item.id)
+        update_web_mapping_app(content_search, the_path, gis, portal)
+        
+    
+   
 
 def update_dashboard(content_search, the_path, gis, portal):
     try:
@@ -163,17 +150,15 @@ def update_web_mapping_app(content_search, the_path, gis, portal):
 def generate_html_list(selected_web_map, gis, portal):
     html_list = []
     lyr_url = []
-    lyr_type = []
     try:
         for lyr in selected_web_map.layers:
             lyr_url.append(lyr.url)
-            lyr_type.append(lyr.get('layerType', 'Unknown'))
             stringy_url = f"<li><a href='{lyr.url}' target='_blank'>{lyr.title}</li></a>"
             if stringy_url not in html_list:
                 html_list.append(stringy_url)
         try:
             for k in range(len(lyr_url)):
-                find_maps_with_layer(lyr_url[k], lyr_type[k], gis=gis, portal=portal)
+                lyr_finder(lyr_url[k], gis=gis, portal=portal)
         except:
             print('couldnt get the layers description updated')
     except:
@@ -195,40 +180,37 @@ def generate_beedle_html(mappy, selected_web_map, description, portal):
     )
 
 
-def find_maps_with_layer(lyr_to_find, search_layer,  gis='', portal=''):
+def lyr_finder(lyr_to_find, gis='', portal=''):
     new_description = ("<font size='4'><b><font color='#ff0000' style='background-color:rgb(255, 255, 255);'>"
-                  "<i>This layer is found in the following Web Map's:</i></font></b>")
+                       "<i>This layer is found in the following Web Map's:</i></font></b>")
     
     # Search for web maps and the specific layer
     web_map_items = gis.content.search(query='*', item_type="Web Map", max_items=200)
-    lyr_to_find = lyr_to_find.split('FeatureServer')[0]+'FeatureServer'
-    lyr_update = gis.content.search(query=lyr_to_find,item_type="Feature Layer Collection", max_items=1)
+    lyr_to_find = lyr_to_find.split('FeatureServer')[0] + 'FeatureServer'
+    lyr_update = gis.content.search(query=lyr_to_find, item_type="Feature Layer Collection", max_items=1)
 
     print(lyr_update)
-    if portal == True:
+    if portal:
         url = 'https://gismaps.glendaleaz.com/gisportal/apps/mapviewer/index.html?webmap='
     else:
         url = 'https://cog-gis.maps.arcgis.com/apps/mapviewer/index.html?webmap='
+    
     maps_with_layer = []
     maps_without_layer = []
     
+    def layer_contains_url(layer):
+        """Check if a layer or its sub-layers contain the desired URL."""
+        if 'url' in layer and lyr_to_find.lower() in layer.url.lower():
+            return True
+        if 'layerType' in layer and layer.layerType == "GroupLayer":
+            return any('url' in sublayer and lyr_to_find.lower() in sublayer.url.lower()
+                       for sublayer in layer.layers)
+        return False
+    
     # Iterate over each web map
     for item in web_map_items:
-        found_it = False
         selected_web_map = WebMap(item)
-        lyrs = selected_web_map.layers
-        
-        for lyr in lyrs:
-            if 'url' in lyr and lyr_to_find.lower() in lyr.url.lower():
-                found_it = True
-                break
-            elif 'layerType' in lyr and lyr.layerType == "GroupLayer":
-                for sublyr in lyr.layers:
-                    if 'url' in sublyr and lyr_to_find.lower() in sublyr.url.lower():
-                        found_it = True
-                        break
-        
-        if found_it:
+        if any(layer_contains_url(layer) for layer in selected_web_map.layers):
             print(f'{item.id} contains the layer')
             maps_with_layer.append(item)
         else:
@@ -236,43 +218,45 @@ def find_maps_with_layer(lyr_to_find, search_layer,  gis='', portal=''):
     
     if not lyr_update:
         print('No layer update found')
-        return 
+        return
     
     # Update the description of the first matching layer
     describe = lyr_update[0]
-    element_list = []
-    the_path = r'D:\COG_ADMIN\MISC_PROJECTS\agic-2024-automating-gis\scripts\templates\\'
-    
     for map_item in maps_with_layer:
         new_description += (
-            f"<ul><li><a href='{url}"
-            f"{map_item.id}' target='_blank'><font size='4'><i>{map_item.title}</i></font></a></li></ul>"
+            f"<ul><li><a href='{url}{map_item.id}' target='_blank'><font size='4'><i>{map_item.title}</i></font></a></li></ul>"
         )
+    
     print(new_description)
+    
     try:
-        
         print("THE TITLE IS :" + describe.title)
         props = {
             "title": describe.title,
             "thumbnailurl": "https://gismaps.glendaleaz.com/gisportal/sharing/rest/content/items/c0ed4fb77f1b441595ea1b6f31c5b46a/data",
             "description": new_description,
             "overwrite": True
-            }
-        if not element_list:
+        }
+        if not maps_with_layer:
             props['tags'] = 'orphan'
             
         describe.update(item_properties=props)
     
     except Exception as e:
         print(f"Failed to update feature layer description: {e}")
-    
-    return maps_with_layer, maps_without_layer
 
 
-if __name__ == "__main__":
+
+def main():
     tools = glendale_tools()
     agol_login = tools.agol_creds()
     portal_creds = tools.portal_creds()
     creds = [agol_login, portal_creds]
     for i in range(len(creds)):
         update_desc(creds[i])
+    return 0
+
+if __name__ == "__main__":
+    main()
+
+    
